@@ -1,9 +1,12 @@
 package beads
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"lazybeads/internal/models"
 )
 
 func TestNewClient(t *testing.T) {
@@ -55,6 +58,206 @@ func TestClient_IsInitialized_Exists(t *testing.T) {
 
 	if !client.IsInitialized() {
 		t.Error("Expected IsInitialized to be true in beads directory")
+	}
+}
+
+func setupFakeBd(t *testing.T, responses map[string]string) (string, func()) {
+	t.Helper()
+
+	tmpDir, err := os.MkdirTemp("", "fake-bd-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+
+	for cmd, response := range responses {
+		script := filepath.Join(tmpDir, "bd-"+cmd)
+		if err := os.WriteFile(script, []byte(response), 0644); err != nil {
+			os.RemoveAll(tmpDir)
+			t.Fatalf("Failed to write fake bd response: %v", err)
+		}
+	}
+
+	mainScript := filepath.Join(tmpDir, "bd")
+	mainContent := "#!/bin/sh\ncase \"$1\" in\n"
+	for cmd := range responses {
+		mainContent += "  " + cmd + ") cat \"" + tmpDir + "/bd-" + cmd + "\" ;;\n"
+	}
+	mainContent += "  *) echo '{}' ;;\nesac"
+	if err := os.WriteFile(mainScript, []byte(mainContent), 0755); err != nil {
+		os.RemoveAll(tmpDir)
+		t.Fatalf("Failed to write fake bd script: %v", err)
+	}
+
+	oldPath := os.Getenv("PATH")
+	os.Setenv("PATH", tmpDir+":"+oldPath)
+
+	return tmpDir, func() {
+		os.Setenv("PATH", oldPath)
+		os.RemoveAll(tmpDir)
+	}
+}
+
+func TestClient_List_Unit(t *testing.T) {
+	tasks := []models.Task{
+		{ID: "ISS-001", Title: "Task 1", Status: "open", Priority: 1, Type: "task"},
+		{ID: "ISS-002", Title: "Task 2", Status: "closed", Priority: 2, Type: "bug"},
+	}
+	response, _ := json.Marshal(tasks)
+
+	_, cleanup := setupFakeBd(t, map[string]string{"list": string(response)})
+	defer cleanup()
+
+	client := NewClient()
+	result, err := client.List()
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+
+	if len(result) != 2 {
+		t.Errorf("Expected 2 tasks, got %d", len(result))
+	}
+	if result[0].ID != "ISS-001" {
+		t.Errorf("Expected first task ID 'ISS-001', got %q", result[0].ID)
+	}
+}
+
+func TestClient_ListOpen_Unit(t *testing.T) {
+	tasks := []models.Task{
+		{ID: "ISS-001", Title: "Open Task", Status: "open", Priority: 1, Type: "task"},
+	}
+	response, _ := json.Marshal(tasks)
+
+	_, cleanup := setupFakeBd(t, map[string]string{"list": string(response)})
+	defer cleanup()
+
+	client := NewClient()
+	result, err := client.ListOpen()
+	if err != nil {
+		t.Fatalf("ListOpen failed: %v", err)
+	}
+
+	if len(result) != 1 {
+		t.Errorf("Expected 1 task, got %d", len(result))
+	}
+}
+
+func TestClient_Ready_Unit(t *testing.T) {
+	tasks := []models.Task{
+		{ID: "ISS-001", Title: "Ready Task", Status: "open", Priority: 1, Type: "task"},
+	}
+	response, _ := json.Marshal(tasks)
+
+	_, cleanup := setupFakeBd(t, map[string]string{"ready": string(response)})
+	defer cleanup()
+
+	client := NewClient()
+	result, err := client.Ready()
+	if err != nil {
+		t.Fatalf("Ready failed: %v", err)
+	}
+
+	if len(result) != 1 {
+		t.Errorf("Expected 1 task, got %d", len(result))
+	}
+}
+
+func TestClient_Show_Unit(t *testing.T) {
+	tasks := []models.Task{
+		{ID: "ISS-001", Title: "Test Task", Status: "open", Priority: 1, Type: "task"},
+	}
+	response, _ := json.Marshal(tasks)
+
+	_, cleanup := setupFakeBd(t, map[string]string{"show": string(response)})
+	defer cleanup()
+
+	client := NewClient()
+	result, err := client.Show("ISS-001")
+	if err != nil {
+		t.Fatalf("Show failed: %v", err)
+	}
+
+	if result.ID != "ISS-001" {
+		t.Errorf("Expected task ID 'ISS-001', got %q", result.ID)
+	}
+}
+
+func TestClient_Show_EmptyResult(t *testing.T) {
+	response := "[]"
+
+	_, cleanup := setupFakeBd(t, map[string]string{"show": response})
+	defer cleanup()
+
+	client := NewClient()
+	_, err := client.Show("ISS-999")
+	if err == nil {
+		t.Error("Expected error for empty result")
+	}
+}
+
+func TestClient_Create_Unit(t *testing.T) {
+	task := models.Task{ID: "ISS-001", Title: "New Task", Status: "open", Priority: 1, Type: "task"}
+	response, _ := json.Marshal(task)
+
+	_, cleanup := setupFakeBd(t, map[string]string{"create": string(response)})
+	defer cleanup()
+
+	client := NewClient()
+	result, err := client.Create(CreateOptions{
+		Title:    "New Task",
+		Type:     "task",
+		Priority: 1,
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	if result.ID != "ISS-001" {
+		t.Errorf("Expected task ID 'ISS-001', got %q", result.ID)
+	}
+}
+
+func TestClient_Create_WithLabels(t *testing.T) {
+	task := models.Task{ID: "ISS-001", Title: "New Task", Status: "open", Priority: 1, Type: "task"}
+	response, _ := json.Marshal(task)
+
+	_, cleanup := setupFakeBd(t, map[string]string{"create": string(response)})
+	defer cleanup()
+
+	client := NewClient()
+	result, err := client.Create(CreateOptions{
+		Title:       "New Task",
+		Type:        "task",
+		Priority:    1,
+		Labels:      []string{"bug", "urgent"},
+		Description: "Test description",
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	if result.ID != "ISS-001" {
+		t.Errorf("Expected task ID 'ISS-001', got %q", result.ID)
+	}
+}
+
+func TestClient_Create_InvalidPriority(t *testing.T) {
+	task := models.Task{ID: "ISS-001", Title: "New Task", Status: "open", Priority: 0, Type: "task"}
+	response, _ := json.Marshal(task)
+
+	_, cleanup := setupFakeBd(t, map[string]string{"create": string(response)})
+	defer cleanup()
+
+	client := NewClient()
+	result, err := client.Create(CreateOptions{
+		Title:    "New Task",
+		Priority: -1, // Invalid, should not be included
+	})
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+
+	if result.ID != "ISS-001" {
+		t.Errorf("Expected task ID 'ISS-001', got %q", result.ID)
 	}
 }
 
