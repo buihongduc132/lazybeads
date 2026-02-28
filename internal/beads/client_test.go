@@ -2,14 +2,67 @@ package beads
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
-// These tests require bd to be installed and run in a beads-initialized directory
-// Skip if not in a valid environment
+func TestNewClient(t *testing.T) {
+	client := NewClient()
+	if client == nil {
+		t.Error("NewClient returned nil")
+	}
+}
+
+func TestClient_IsInitialized_NotExists(t *testing.T) {
+	client := NewClient()
+
+	tmpDir, err := os.MkdirTemp("", "beads-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	oldDir, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Failed to change to temp dir: %v", err)
+	}
+	defer os.Chdir(oldDir)
+
+	if client.IsInitialized() {
+		t.Error("Expected IsInitialized to be false in non-beads directory")
+	}
+}
+
+func TestClient_IsInitialized_Exists(t *testing.T) {
+	client := NewClient()
+
+	tmpDir, err := os.MkdirTemp("", "beads-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	beadsDir := filepath.Join(tmpDir, ".beads")
+	if err := os.Mkdir(beadsDir, 0755); err != nil {
+		t.Fatalf("Failed to create .beads dir: %v", err)
+	}
+
+	oldDir, _ := os.Getwd()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Failed to change to temp dir: %v", err)
+	}
+	defer os.Chdir(oldDir)
+
+	if !client.IsInitialized() {
+		t.Error("Expected IsInitialized to be true in beads directory")
+	}
+}
 
 func skipIfNoBeads(t *testing.T) {
 	t.Helper()
+	if os.Getenv("BEADS_INTEGRATION") == "" {
+		t.Skip("BEADS_INTEGRATION is not set, skipping integration test")
+	}
 	if _, err := os.Stat(".beads"); os.IsNotExist(err) {
 		// Try parent directories up to 3 levels
 		for _, dir := range []string{"..", "../..", "../../.."} {
