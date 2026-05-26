@@ -465,6 +465,13 @@ func (m Model) viewForm() string {
 	}
 	b.WriteString(typeLabel + typeValue + focusIndicator + "\n\n")
 
+	// Error message if any
+	if m.err != nil {
+		b.WriteString("\n")
+		b.WriteString(ui.ErrorStyle.Render("Error: " + m.err.Error()))
+		b.WriteString("\n")
+	}
+
 	// Help
 	b.WriteString("\n")
 	b.WriteString(ui.HelpBarStyle.Render("tab/shift+tab: next/prev field  enter: submit  esc: cancel"))

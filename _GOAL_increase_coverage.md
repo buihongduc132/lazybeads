@@ -41,3 +41,6 @@ Notes:
 - Go `coverprofile` does not report branch coverage. If branch coverage is required, we need a tool that supports it.
 - Used fake `bd` executable in PATH to test beads/client.go functions without modifying source code
 - UI components tested by instantiating models and calling methods directly
+
+
+if you are iteration == 5 , rebase from main then continue
