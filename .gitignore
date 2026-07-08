@@ -30,3 +30,5 @@ target/
 dist/
 build/
 *.log
+.fusion
+.pi
